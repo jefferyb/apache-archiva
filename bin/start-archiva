@@ -1,0 +1,10 @@
+#!/bin/bash
+
+if [ ! -d ${ARCHIVA_BASE}/logs ]; then
+  mkdir -p ${ARCHIVA_BASE}/logs ${ARCHIVA_BASE}/data ${ARCHIVA_BASE}/temp ${ARCHIVA_BASE}/repositories
+  cp -frp ${APP_ROOT}/conf ${ARCHIVA_BASE}/
+fi
+
+${APP_ROOT}/bin/archiva console &
+sleep 7
+tail -f ${ARCHIVA_BASE}/logs/*.log

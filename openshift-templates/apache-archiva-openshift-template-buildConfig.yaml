@@ -1,0 +1,211 @@
+### How to run it:
+# $ oc process -f openshift-templates/apache-archiva-openshift-template.yaml -p APPLICATION_URL=archiva.example.com | oc apply -f -
+#
+####### </ Jeffery Bagirimvano >
+
+apiVersion: v1
+kind: Template
+metadata:
+  name: apache-archiva-template
+  annotations:
+    openshift.io/display-name: "Apache Archiva" 
+    tags: "apache,archiva,uits" 
+message: "Apache Archiva™ is an extensible repository management software that helps taking care of your own personal or enterprise-wide build artifact repository."
+parameters:
+  - name: APPLICATION_NAME
+    description: "Application Name"
+    required: true
+    value: "apache-archiva"
+  - name: APPLICATION_URL
+    description: "The application url (Route/URL)"
+    required: true
+
+objects:
+- apiVersion: v1
+  kind: ServiceAccount
+  metadata:
+    name: ${APPLICATION_NAME}-sa
+    labels:
+      app: ${APPLICATION_NAME}
+
+- apiVersion: v1
+  kind: RoleBinding
+  metadata:
+    name: ${APPLICATION_NAME}-edit
+    labels:
+      app: ${APPLICATION_NAME}
+  groupNames: null
+  subjects:
+    - kind: ServiceAccount
+      name: ${APPLICATION_NAME}-sa
+  roleRef:
+    name: edit
+
+- apiVersion: v1
+  kind: Service
+  metadata:
+    name: ${APPLICATION_NAME}
+    labels:
+      app: ${APPLICATION_NAME}
+  spec:
+    ports:
+      - name: 8080-tcp
+        port: 8080
+        protocol: TCP
+        targetPort: 8080
+    selector:
+      app: ${APPLICATION_NAME}
+      deploymentconfig: ${APPLICATION_NAME}
+    sessionAffinity: None
+    type: ClusterIP
+  status:
+    loadBalancer: {}
+
+- apiVersion: v1
+  kind: Route
+  metadata:
+    name: ${APPLICATION_NAME}
+    labels:
+      app: ${APPLICATION_NAME}
+  spec:
+    host: ${APPLICATION_URL}
+    port:
+      targetPort: 8080-tcp
+    tls:
+      insecureEdgeTerminationPolicy: Redirect
+      termination: edge
+    to:
+      kind: Service
+      name: ${APPLICATION_NAME}
+      weight: 100
+    wildcardPolicy: None
+  status: {}
+
+- apiVersion: image.openshift.io/v1
+  kind: ImageStream
+  metadata:
+    name: ${APPLICATION_NAME}
+    labels:
+      app: ${APPLICATION_NAME}
+  spec: {}
+
+- apiVersion: build.openshift.io/v1
+  kind: BuildConfig
+  metadata:
+    name: ${APPLICATION_NAME}
+    labels:
+      app: ${APPLICATION_NAME}
+    annotations:
+      template.alpha.openshift.io/wait-for-ready: 'true'
+  spec:
+    successfulBuildsHistoryLimit: 3
+    failedBuildsHistoryLimit: 3
+    nodeSelector: null
+    triggers:
+      - type: ConfigChange
+      - type: ImageChange
+        imageChange: {}
+    source:
+      type: Git
+      git:
+        uri: https://github.com/jefferyb/apache-archiva.git
+    strategy:
+      type: Docker
+      dockerStrategy:
+        dockerfilePath: Dockerfile
+    output:
+      to:
+        kind: ImageStreamTag
+        name: ${APPLICATION_NAME}:latest
+    postCommit: {}
+    resources: {}
+    runPolicy: Serial
+  status:
+    lastVersion: 0
+
+- apiVersion: v1
+  kind: PersistentVolumeClaim
+  metadata:
+    name: ${APPLICATION_NAME}-data
+    labels:
+      app: ${APPLICATION_NAME}-data
+  spec:
+    accessModes:
+      - ReadWriteOnce
+    resources:
+      requests:
+        storage: 3Gi
+
+- apiVersion: v1
+  kind: DeploymentConfig
+  metadata:
+    name: ${APPLICATION_NAME}
+    labels:
+      app: ${APPLICATION_NAME}
+  spec:
+    replicas: 1
+    selector:
+      app: ${APPLICATION_NAME}
+      deploymentconfig: ${APPLICATION_NAME}
+    strategy:
+      type: Recreate
+    template:
+      metadata:
+        labels:
+          app: ${APPLICATION_NAME}
+          deploymentconfig: ${APPLICATION_NAME}
+      spec:
+        containers:
+        - name: ${APPLICATION_NAME}
+          image: ${APPLICATION_NAME}:latest
+          ports:
+            - containerPort: 8080
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 0.03
+              memory: 512Mi
+            limits:
+              cpu: 2
+              memory: 1Gi
+          readinessProbe:
+            failureThreshold: 3
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            successThreshold: 1
+            tcpSocket:
+              port: 8080
+            timeoutSeconds: 1
+          livenessProbe:
+            failureThreshold: 3
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            successThreshold: 1
+            tcpSocket:
+              port: 8080
+            timeoutSeconds: 1
+          volumeMounts:
+            - mountPath: /opt/app-root/archiva-base
+              name: ${APPLICATION_NAME}-data
+        dnsPolicy: ClusterFirst
+        restartPolicy: Always
+        schedulerName: default-scheduler
+        securityContext: {}
+        terminationGracePeriodSeconds: 30
+        serviceAccountName: ${APPLICATION_NAME}-sa
+        volumes:
+          - name: ${APPLICATION_NAME}-data
+            persistentVolumeClaim:
+              claimName: ${APPLICATION_NAME}-data
+    test: false
+    triggers:
+      - type: ConfigChange
+      - imageChangeParams:
+          automatic: true
+          containerNames:
+          - ${APPLICATION_NAME}
+          from:
+            kind: ImageStreamTag
+            name: ${APPLICATION_NAME}:latest
+        type: ImageChange
+  status: {}
